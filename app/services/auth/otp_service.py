@@ -11,8 +11,12 @@ In production:
   - Requires a working REDIS_URL
 """
 import random
+import logging
+logger = logging.getLogger(__name__)
+
 from datetime import datetime, timedelta
 from app.core.config import settings
+from app.services.email_service import send_otp_email
 
 OTP_TTL_SECONDS = 600
 MAX_ATTEMPTS = 5
@@ -26,24 +30,34 @@ def _generate_otp() -> str:
 
 
 async def create_otp(email: str) -> str:
-    """Generate and store OTP. Returns the code."""
     code = _generate_otp()
     email = email.lower()
 
+    logger.info(f"ENV={settings.ENVIRONMENT}, REDIS_URL={bool(settings.REDIS_URL)}")
+
     if settings.ENVIRONMENT == "development" or not settings.REDIS_URL:
-        # Dev mode — store in memory
         _dev_store[email] = {
             "code": code,
             "expires_at": datetime.utcnow() + timedelta(seconds=OTP_TTL_SECONDS),
             "attempts": 0,
         }
-        print(f"\n{'='*40}")
-        print(f"  OTP for {email}: {code}")
-        print(f"{'='*40}\n")
+        print(f"OTP for {email}: {code}")
         return code
 
-    # Production — store in Redis
-    return await _create_otp_redis(email, code)
+    try:
+        await _create_otp_redis(email, code)
+    except Exception as e:
+        logger.error(f"Redis error: {str(e)}")
+        raise
+
+    # SEND OTP HERE
+    sent = await send_otp_email(email, code)
+
+    if not sent:
+        logger.error(f"OTP email failed for {email}")
+        raise Exception("Unable to send OTP email")
+
+    
 
 
 async def verify_otp(email: str, code: str) -> tuple[bool, str]:

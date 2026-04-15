@@ -9,14 +9,15 @@ Resend is the best choice here:
 Alternative: SendGrid (more complex), Mailgun, AWS SES
 """
 import httpx
+import logging
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 RESEND_BASE = "https://api.resend.com"
 
 
 async def send_otp_email(to_email: str, otp_code: str, display_name: str = "") -> bool:
-    """Send OTP verification email. Returns True if sent successfully."""
-
     name_greeting = f"Hi {display_name}," if display_name else "Hi there,"
 
     html_body = f"""
@@ -32,6 +33,10 @@ async def send_otp_email(to_email: str, otp_code: str, display_name: str = "") -
     </div>
     """
 
+    if not settings.RESEND_API_KEY:
+        logger.error("RESEND_API_KEY is missing")
+        return False
+
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
             f"{RESEND_BASE}/emails",
@@ -46,8 +51,14 @@ async def send_otp_email(to_email: str, otp_code: str, display_name: str = "") -
                 "html": html_body,
             },
         )
-        return r.status_code == 200
 
+        if r.status_code != 200:
+            logger.error(f"Resend OTP failed: {r.status_code} - {r.text}")
+            return False
+
+        logger.info(f"OTP email sent successfully to {to_email}")
+        return True
+    
 
 async def send_welcome_email(to_email: str, display_name: str) -> bool:
     """Send welcome email after profile is complete."""
