@@ -4,6 +4,7 @@ from typing import List
 import json
 
 
+
 class Settings(BaseSettings):
     APP_NAME: str = "AI Contacts"
     SECRET_KEY: str = "dev-secret-key"
@@ -18,9 +19,9 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # Email
-    RESEND_API_KEY: str | None = os.getenv("RESEND_API_KEY")
-    RESEND_FROM_EMAIL: str = os.getenv("RESEND_FROM_EMAIL", "no-reply@yourdomain.com")
+    RESEND_API_KEY: str | None = None
     EMAIL_FROM_NAME: str = "AI Contacts"
+    EMAIL_FROM_ADDRESS: str = "onboarding@resend.dev"
 
     # OAuth
     GOOGLE_CLIENT_ID: str = ""
