@@ -1,0 +1,44 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+
+# Database
+# asyncpg — async postgres driver (used by SQLAlchemy for all async ops)
+# psycopg[binary] — sync driver used only by alembic migrations
+# psycopg2-binary removed — no pre-built wheel for Python 3.14
+sqlalchemy==2.0.35
+asyncpg==0.29.0
+alembic==1.13.3
+pgvector==0.3.5
+psycopg[binary]==3.3.3
+
+# Auth
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# Email (Resend)
+httpx==0.27.2
+
+# Queue + Redis (OTP storage)
+celery==5.4.0
+redis==5.1.0
+
+# AI
+anthropic==0.34.2
+openai==1.47.0
+
+# Storage
+boto3==1.35.27
+
+# Config & validation
+pydantic==2.9.2
+pydantic-settings==2.5.2
+pydantic[email]==2.9.2
+python-dotenv==1.0.1
+
+# WebSockets
+websockets==13.1
+
+# Utils
+tenacity==9.0.0

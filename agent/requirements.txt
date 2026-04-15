@@ -1,0 +1,24 @@
+# LiveKit Agents framework
+livekit-agents==0.8.0
+livekit==0.11.0
+
+# HTTP calls to self-hosted services
+httpx==0.27.2
+aiohttp==3.10.5
+
+# Anthropic (primary LLM)
+anthropic==0.34.2
+
+# Audio processing
+numpy==1.26.4
+av==12.3.0           # PyAV — audio frame handling
+soundfile==0.12.1    # audio file read/write
+
+# Config
+python-dotenv==1.0.1
+pydantic-settings==2.5.2
+
+# Database (to load contact personas + write transcripts)
+sqlalchemy==2.0.35
+asyncpg==0.29.0
+psycopg2-binary==2.9.9

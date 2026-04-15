@@ -1,0 +1,98 @@
+version: "3.9"
+
+services:
+  # ── Core infrastructure ─────────────────────────────────────────────
+
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ai_contacts
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # ── FastAPI backend ─────────────────────────────────────────────────
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ── LiveKit SFU (self-hosted WebRTC) ────────────────────────────────
+  # Free — open source. Handles all audio/video routing.
+  # Docs: https://docs.livekit.io/realtime/self-hosting/local/
+
+  livekit:
+    image: livekit/livekit-server:latest
+    ports:
+      - "7880:7880"      # HTTP API
+      - "7881:7881"      # gRPC
+      - "7882:7882/udp"  # WebRTC UDP
+    command: --dev --bind 0.0.0.0
+    environment:
+      - LIVEKIT_KEYS=devkey:secret   # change in production
+
+  # ── Whisper STT (self-hosted) ────────────────────────────────────────
+  # Faster-Whisper small model — runs on CPU, ~2-3s for async voice notes
+  # For real-time call STT, add a GPU and use --model medium or large
+  # Image: https://github.com/fedirz/faster-whisper-server
+
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cpu
+    ports:
+      - "8001:8000"
+    environment:
+      - WHISPER__MODEL=Systran/faster-whisper-small
+      - WHISPER__INFERENCE_DEVICE=cpu
+    volumes:
+      - whisper_cache:/root/.cache/huggingface
+
+  # ── Kokoro TTS (self-hosted) ─────────────────────────────────────────
+  # Best quality self-hosted TTS — runs on CPU (slower) or GPU (fast)
+  # CPU image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.2.2
+  # GPU image: ghcr.io/remsky/kokoro-fastapi-gpu:v0.2.2
+
+  kokoro:
+    image: ghcr.io/remsky/kokoro-fastapi-cpu:v0.2.2
+    ports:
+      - "8880:8880"
+    volumes:
+      - kokoro_cache:/app/models
+
+  # ── Voxtral TTS/STT (self-hosted, optional — needs GPU) ─────────────
+  # Only run this if you have a GPU with 16GB+ VRAM.
+  # Comment out if running CPU-only.
+  # Deploy separately: vllm serve mistralai/Voxtral-Small-22B-v0.1
+  #
+  # voxtral:
+  #   image: vllm/vllm-openai:latest
+  #   ports:
+  #     - "8890:8000"
+  #   command: --model mistralai/Voxtral-Small-22B-v0.1
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+
+volumes:
+  postgres_data:
+  whisper_cache:
+  kokoro_cache:
