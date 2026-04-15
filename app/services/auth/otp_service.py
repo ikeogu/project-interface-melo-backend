@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 from datetime import datetime, timedelta
 from app.core.config import settings
-from app.services.email_service import send_otp_email
+from app.services.auth.email_service import send_otp_email
 
 OTP_TTL_SECONDS = 600
 MAX_ATTEMPTS = 5
