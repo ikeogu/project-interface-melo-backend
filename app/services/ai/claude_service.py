@@ -116,16 +116,25 @@ async def get_response(
 # ── Internal tasks (always use cheapest available) ─────────────────────────────
 
 async def extract_memories(conversation_text: str) -> list[str]:
-    """Extract memorable facts — uses cheapest available model."""
     system = (
         "Extract key facts about the user from this conversation. "
         "Return ONLY a JSON array of short strings, or [] if nothing memorable. "
         'Example: ["User is Lagos-based founder", "User prefers concise replies"]'
     )
+
+    # If OpenRouter key is not set, just return empty (avoid Ollama crash)
+    if not settings.OPENROUTER_API_KEY:
+        return []
+
     try:
-        text = await _get_openrouter(system, [{"role": "user", "content": conversation_text}], QWEN_MODEL)
+        text = await _get_openrouter(
+            system,
+            [{"role": "user", "content": conversation_text}],
+            QWEN_MODEL
+        )
     except Exception:
-        text = await _get_ollama(system, [{"role": "user", "content": conversation_text}])
+        return []
+
     try:
         return json.loads(text)
     except Exception:
