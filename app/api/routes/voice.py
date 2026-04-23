@@ -62,3 +62,47 @@ async def upload_voice_note(
         status_code=503,
         detail="No storage configured. Set SUPABASE_URL/SERVICE_KEY or AWS credentials."
     )
+
+async def _upload_to_supabase(audio_bytes: bytes, key: str) -> str:
+    bucket = "voice-notes"
+    supabase_url = settings.SUPABASE_URL.rstrip("/")
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(
+            f"{supabase_url}/storage/v1/object/{bucket}/{key}",
+            headers={
+                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                "Content-Type": "audio/m4a",
+                "x-upsert": "true",
+            },
+            content=audio_bytes,
+        )
+
+        if r.status_code not in (200, 201):
+            await _ensure_bucket(client, bucket)
+
+            r = await client.post(
+                f"{supabase_url}/storage/v1/object/{bucket}/{key}",
+                headers={
+                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "audio/m4a",
+                    "x-upsert": "true",
+                },
+                content=audio_bytes,
+            )
+
+            if r.status_code not in (200, 201):
+                raise HTTPException(status_code=500, detail=f"Supabase upload failed: {r.text}")
+
+    return f"{supabase_url}/storage/v1/object/public/{bucket}/{key}"
+
+async def _ensure_bucket(client: httpx.AsyncClient, bucket: str):
+    supabase_url = settings.SUPABASE_URL.rstrip("/")
+    await client.post(
+        f"{supabase_url}/storage/v1/bucket",
+        headers={
+            "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={"id": bucket, "name": bucket, "public": True},
+    )
