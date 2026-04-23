@@ -47,10 +47,12 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "llama3.2"
 
     # OpenAI (Whisper API fallback only)
-    OPENAI_API_KEY: str = ""
+    OPENAI_API_KEY: str | None = None
 
     # ElevenLabs (TTS fallback only)
-    ELEVENLABS_API_KEY: str = ""
+    ELEVENLABS_API_KEY: str | None = None
+   
+   
 
     # Tavus (video avatar, Phase 3)
     TAVUS_API_KEY: str = ""
@@ -63,7 +65,7 @@ class Settings(BaseSettings):
     S3_ENDPOINT_URL: str = ""
 
     # Self-hosted services
-    WHISPER_SERVICE_URL: str = "http://localhost:8001"
+    WHISPER_SERVICE_URL: str | None = None
     KOKORO_SERVICE_URL: str = "http://localhost:8880"
     VOXTRAL_SERVICE_URL: str = ""
     LIVEKIT_URL: str = "ws://localhost:7880"
