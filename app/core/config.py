@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = "http://localhost:8000"
     APP_DEEP_LINK_SCHEME: str = "aicontacts"
 
+    APP_BASE_URL: str | None = None
+    SUPABASE_URL: str | None = None
+    SUPABASE_SERVICE_KEY: str | None = None
+
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/ai_contacts"
     SYNC_DATABASE_URL: str = "postgresql://postgres:password@localhost:5432/ai_contacts"
