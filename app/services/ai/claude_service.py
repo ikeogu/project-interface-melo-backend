@@ -79,8 +79,21 @@ async def stream_response(
         print(f"[LLM] OpenRouter stream failed: {e} — falling back to Ollama")
 
     # Ollama dev fallback
-    async for token in _stream_ollama(system, messages):
-        yield token
+    try:
+        async for token in _stream_ollama(system, messages):
+            yield token
+        return
+    except Exception as e:
+        print(f"[LLM] Ollama stream failed: {e}")
+
+    # Last resort: Claude (even if force_cheap was requested)
+    if settings.ANTHROPIC_API_KEY:
+        print("[LLM] All cheap options failed — falling back to Claude")
+        async for token in _stream_claude(system, messages):
+            yield token
+        return
+
+    raise Exception("No LLM provider available")
 
 
 async def get_response(
@@ -110,7 +123,17 @@ async def get_response(
     except Exception as e:
         print(f"[LLM] OpenRouter failed: {e} — falling back to Ollama")
 
-    return await _get_ollama(system, messages)
+    try:
+        return await _get_ollama(system, messages)
+    except Exception as e:
+        print(f"[LLM] Ollama failed: {e}")
+
+    # Last resort: Claude (even if force_cheap was requested)
+    if settings.ANTHROPIC_API_KEY:
+        print("[LLM] All cheap options failed — falling back to Claude")
+        return await _get_claude(system, messages)
+
+    raise Exception("No LLM provider available")
 
 
 # ── Internal tasks (always use cheapest available) ─────────────────────────────
