@@ -22,6 +22,7 @@ Config (.env):
 import anthropic
 import httpx
 import json
+import re
 from typing import AsyncGenerator
 from app.core.config import settings
 
@@ -114,24 +115,24 @@ async def get_response(
 
     if tier == "claude":
         try:
-            return await _get_claude(system, messages)
+            return _clean_response(await _get_claude(system, messages))
         except Exception as e:
             print(f"[LLM] Claude failed: {e} — falling back")
 
     try:
-        return await _get_openrouter(system, messages, QWEN_MODEL)
+        return _clean_response(await _get_openrouter(system, messages, QWEN_MODEL))
     except Exception as e:
         print(f"[LLM] OpenRouter failed: {e} — falling back to Ollama")
 
     try:
-        return await _get_ollama(system, messages)
+        return _clean_response(await _get_ollama(system, messages))
     except Exception as e:
         print(f"[LLM] Ollama failed: {e}")
 
     # Last resort: Claude (even if force_cheap was requested)
     if settings.ANTHROPIC_API_KEY:
         print("[LLM] All cheap options failed — falling back to Claude")
-        return await _get_claude(system, messages)
+        return _clean_response(await _get_claude(system, messages))
 
     raise Exception("No LLM provider available")
 
@@ -351,12 +352,38 @@ def _assert_ollama_url():
 
 # ── System prompt builder ──────────────────────────────────────────────────────
 
+_STYLE_RULES = (
+    "\n\nCommunication rules (always follow, no exceptions):\n"
+    "- Be concise. 2–4 sentences unless the user explicitly asks for more detail.\n"
+    "- Write in plain conversational text. Never use markdown: no headers (#), "
+    "no bold (**), no italics (*), no bullet lists, no horizontal rules (---).\n"
+    "- Never describe your own physical actions or gestures (no *leans forward* style text)."
+)
+
+
 def _build_system(persona_prompt: str, memory_context: str) -> str:
+    base = persona_prompt + _STYLE_RULES
     if not memory_context:
-        return persona_prompt
+        return base
     return (
-        f"{persona_prompt}\n\n"
+        f"{base}\n\n"
         f"--- What you know about this user ---\n"
         f"{memory_context}\n"
         f"---"
     )
+
+
+def _clean_response(text: str) -> str:
+    """Strip markdown and roleplay action text that slips past the system prompt."""
+    # Remove *action descriptions* (e.g. *Father James leans forward*)
+    text = re.sub(r'\*[^*\n]{1,120}\*', '', text)
+    # Strip markdown headers
+    text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
+    # Unwrap bold and italic markers
+    text = re.sub(r'\*\*(.+?)\*\*', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'\*(.+?)\*', r'\1', text, flags=re.DOTALL)
+    # Remove horizontal rules
+    text = re.sub(r'^-{3,}\s*$', '', text, flags=re.MULTILINE)
+    # Collapse excessive blank lines
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()

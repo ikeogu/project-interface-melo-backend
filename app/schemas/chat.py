@@ -12,6 +12,11 @@ class ChatCreate(BaseModel):
 class GroupChatCreate(BaseModel):
     name: str
     contact_ids: List[UUID]
+    user_ids: List[UUID] = []  # other real users to invite (makes it a mixed chat)
+
+
+class InviteUser(BaseModel):
+    email: str
 
 class ChatOut(BaseModel):
     id: UUID

@@ -7,7 +7,8 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.chat import Chat, ChatType
 from app.models.contact import Contact
-from app.schemas.chat import ChatCreate, GroupChatCreate, ChatOut
+from app.models.user import User as UserModel
+from app.schemas.chat import ChatCreate, GroupChatCreate, ChatOut, InviteUser
 from uuid import UUID
 
 router = APIRouter(prefix="/chats", tags=["chats"])
@@ -107,6 +108,7 @@ async def create_group_chat(
         )
 
     participants = [{"id": str(current_user.id), "type": "user"}]
+
     for cid in payload.contact_ids:
         result = await db.execute(
             select(Contact).where(
@@ -119,13 +121,61 @@ async def create_group_chat(
             raise HTTPException(status_code=404, detail=f"Contact {cid} not found")
         participants.append({"id": str(cid), "type": "contact"})
 
+    # Optional: invite other real users → makes this a mixed chat
+    for uid in payload.user_ids:
+        if uid == current_user.id:
+            continue
+        user_result = await db.execute(select(UserModel).where(UserModel.id == uid))
+        invited = user_result.scalar_one_or_none()
+        if not invited:
+            raise HTTPException(status_code=404, detail=f"User {uid} not found")
+        participants.append({"id": str(uid), "type": "user"})
+
+    chat_type = ChatType.mixed if payload.user_ids else ChatType.group
+
     chat = Chat(
         owner_id=current_user.id,
-        chat_type=ChatType.group,
+        chat_type=chat_type,
         name=payload.name,
         participants=participants,
     )
     db.add(chat)
+    await db.commit()
+    await db.refresh(chat)
+    return chat
+
+
+@router.post("/{chat_id}/invite", response_model=ChatOut)
+async def invite_user_to_chat(
+    chat_id: UUID,
+    payload: InviteUser,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a real user to an existing group or mixed chat by email."""
+    chat_result = await db.execute(
+        select(Chat).where(Chat.id == chat_id, Chat.owner_id == current_user.id)
+    )
+    chat = chat_result.scalar_one_or_none()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if chat.chat_type == ChatType.direct:
+        raise HTTPException(status_code=400, detail="Cannot invite users to a direct chat")
+
+    user_result = await db.execute(
+        select(UserModel).where(UserModel.email == payload.email)
+    )
+    invitee = user_result.scalar_one_or_none()
+    if not invitee:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    already_in = any(p["id"] == str(invitee.id) for p in chat.participants)
+    if already_in:
+        raise HTTPException(status_code=400, detail="User is already in this chat")
+
+    chat.participants = chat.participants + [{"id": str(invitee.id), "type": "user"}]
+    chat.chat_type = ChatType.mixed
     await db.commit()
     await db.refresh(chat)
     return chat

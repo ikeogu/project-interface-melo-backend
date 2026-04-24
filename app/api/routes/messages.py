@@ -68,13 +68,20 @@ async def send_message(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # 1. Verify chat belongs to user
+    # 1. Verify user has access to this chat (owner OR participant in a mixed chat)
     chat_result = await db.execute(
-        select(Chat).where(Chat.id == payload.chat_id, Chat.owner_id == current_user.id)
+        select(Chat).where(Chat.id == payload.chat_id)
     )
     chat = chat_result.scalar_one_or_none()
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
+
+    is_participant = any(
+        p["id"] == str(current_user.id) and p["type"] == "user"
+        for p in chat.participants
+    )
+    if not is_participant:
+        raise HTTPException(status_code=403, detail="Not a participant in this chat")
 
     # 2. Transcribe voice note if needed
     transcription = None
@@ -98,9 +105,31 @@ async def send_message(
     await db.commit()
     await db.refresh(user_msg)
 
-    # 4a. GROUP CHAT — delegate to orchestrator as background task and return immediately.
-    #     All agent replies arrive via WebSocket; no HTTP timeout risk.
-    if chat.chat_type == ChatType.group:
+    # 4a. GROUP / MIXED CHAT — broadcast sender's message to other human participants,
+    #     then delegate AI responses to orchestrator as a background task.
+    if chat.chat_type in (ChatType.group, ChatType.mixed):
+        # Deliver sender's message to every other human participant in real-time
+        other_user_ids = [
+            p["id"] for p in chat.participants
+            if p["type"] == "user" and p["id"] != str(current_user.id)
+        ]
+        msg_event = {
+            "type": "message",
+            "payload": {
+                "id": str(user_msg.id),
+                "chat_id": str(user_msg.chat_id),
+                "sender_type": user_msg.sender_type,
+                "sender_id": str(user_msg.sender_id),
+                "content_type": user_msg.content_type,
+                "text_content": user_msg.text_content,
+                "media_url": user_msg.media_url,
+                "created_at": user_msg.created_at.isoformat(),
+                "meta": {},
+            },
+        }
+        for uid in other_user_ids:
+            await ws_manager.send_to_user(uid, msg_event)
+
         raw_msgs = await _get_conversation_messages(db, payload.chat_id)
         history = build_group_history(raw_msgs)
         background_tasks.add_task(

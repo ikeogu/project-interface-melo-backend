@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """
-Seed script — inserts the 3 Phase 1 contact templates into the database.
-Run once after your DB is set up:
+Seed script — upserts contact templates into the database.
+Safe to run multiple times — updates existing records, inserts missing ones.
   python scripts/seed_contacts.py
 """
 import asyncio
 import sys
 sys.path.insert(0, ".")
 
+from sqlalchemy import select
 from app.db.session import AsyncSessionLocal
 from app.models.contact import Contact, MemoryScope
-from app.models.memory import Memory  # add this line
-from app.models.user import User      # add this line
-from app.models.chat import Chat      # add this line
-from app.models.message import Message  # add this line
+from app.models.memory import Memory  # noqa: F401 — registers relationship targets
+from app.models.user import User      # noqa: F401
+from app.models.chat import Chat      # noqa: F401
+from app.models.message import Message  # noqa: F401
 
 TEMPLATES = [
     {
@@ -76,12 +77,27 @@ You meet people where they are. Never mention that you are an AI unless directly
 
 
 async def seed():
+    created = updated = 0
     async with AsyncSessionLocal() as db:
         for t in TEMPLATES:
-            contact = Contact(**t)
-            db.add(contact)
+            result = await db.execute(
+                select(Contact).where(
+                    Contact.name == t["name"],
+                    Contact.is_template == True,
+                )
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                for key, value in t.items():
+                    setattr(existing, key, value)
+                updated += 1
+            else:
+                db.add(Contact(**t))
+                created += 1
+
         await db.commit()
-    print(f"Seeded {len(TEMPLATES)} contact templates.")
+    print(f"Done — {created} created, {updated} updated.")
 
 
 if __name__ == "__main__":

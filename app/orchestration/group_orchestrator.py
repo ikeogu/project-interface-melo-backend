@@ -54,6 +54,9 @@ async def handle_group_message(
         if not contact_ids:
             return
 
+        # All human participants who should receive AI replies (includes non-owner users)
+        all_user_ids = [p["id"] for p in chat.participants if p.get("type") == "user"]
+
         result = await db.execute(
             select(Contact).where(Contact.id.in_(contact_ids))
         )
@@ -65,16 +68,18 @@ async def handle_group_message(
         history_summary = _summarise_history(history)
         contacts = await decide_responders(user_text, all_contacts_ordered, history_summary)
 
-        # 2. Typing indicators only for selected contacts
+        # 2. Typing indicators — send to all human participants
         for contact in contacts:
-            await ws_manager.send_to_user(str(user_id), {
+            event = {
                 "type": "typing",
                 "payload": {
                     "chat_id": str(chat.id),
                     "contact_id": str(contact.id),
                     "contact_name": contact.name,
                 },
-            })
+            }
+            for uid in all_user_ids:
+                await ws_manager.send_to_user(uid, event)
 
         # 3. Fetch memory contexts sequentially — SQLAlchemy async sessions
         #    are not safe for concurrent coroutine access on the same session.
@@ -122,7 +127,7 @@ async def handle_group_message(
             await db.commit()
             await db.refresh(agent_msg)
 
-            await ws_manager.send_to_user(str(user_id), {
+            agent_event = {
                 "type": "message",
                 "payload": {
                     "id": str(agent_msg.id),
@@ -135,7 +140,9 @@ async def handle_group_message(
                     "created_at": agent_msg.created_at.isoformat(),
                     "meta": {"contact_name": contact.name},
                 },
-            })
+            }
+            for uid in all_user_ids:
+                await ws_manager.send_to_user(uid, agent_event)
 
             delivered.append((contact, response, agent_msg.id))
 
