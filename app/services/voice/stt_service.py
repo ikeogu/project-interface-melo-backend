@@ -1,9 +1,9 @@
 """
 STT Service — multi-provider fallback:
 
-1. ElevenLabs (DEFAULT - best quality + simplest)
-2. Self-hosted Faster-Whisper (cheap + fast if available)
-3. OpenAI Whisper API (last resort fallback)
+1. ElevenLabs (default)
+2. Self-hosted Faster-Whisper (free, if WHISPER_SERVICE_URL is set)
+3. OpenAI Whisper API (last resort)
 """
 import httpx
 import io
@@ -25,14 +25,14 @@ async def transcribe_audio(file_url: str) -> str:
       3. OpenAI Whisper API
     """
 
-    # 1. ElevenLabs (DEFAULT)
+    # 1. ElevenLabs (default)
     if settings.ELEVENLABS_API_KEY:
         try:
             return await _transcribe_elevenlabs(file_url)
         except Exception as e:
             print(f"[STT] ElevenLabs failed: {e}")
 
-    # 2. Self-hosted Whisper
+    # 2. Self-hosted Whisper (if WHISPER_SERVICE_URL is set)
     if settings.WHISPER_SERVICE_URL:
         try:
             return await _transcribe_self_hosted(file_url)
@@ -87,8 +87,9 @@ async def _transcribe_self_hosted(file_url: str) -> str:
         audio_bytes = audio_r.content
 
         r = await client.post(
-            f"{settings.WHISPER_SERVICE_URL}/transcribe",
-            files={"audio": ("voice.m4a", audio_bytes, "audio/m4a")},
+            f"{settings.WHISPER_SERVICE_URL}/v1/audio/transcriptions",
+            data={"model": "Systran/faster-whisper-small"},
+            files={"file": ("voice.m4a", audio_bytes, "audio/m4a")},
         )
 
         r.raise_for_status()
