@@ -51,8 +51,6 @@ class Settings(BaseSettings):
 
     # ElevenLabs (TTS fallback only)
     ELEVENLABS_API_KEY: str | None = None
-   
-   
 
     # Tavus (video avatar, Phase 3)
     TAVUS_API_KEY: str = ""
