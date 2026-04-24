@@ -113,7 +113,7 @@ async def send_message(
 
     if payload.content_type == ContentType.voice:
         audio_bytes = await synthesise_speech(response_text, voice_id=contact.voice_id)
-        agent_media_url = upload_audio(audio_bytes)
+        agent_media_url = await upload_audio(audio_bytes, content_type="audio/mpeg")
         agent_content_type = ContentType.voice
 
     # 8. Save agent message
