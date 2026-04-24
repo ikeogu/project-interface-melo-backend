@@ -51,6 +51,7 @@ MarkupSafe==3.0.3
 mdurl==0.1.2
 multidict==6.7.1
 numpy==2.4.4
+edge-tts>=6.1.9
 elevenlabs>=1.50.0
 openai==1.47.0
 packaging==26.0
