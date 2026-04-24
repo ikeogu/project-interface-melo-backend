@@ -31,6 +31,7 @@ from app.services.memory.memory_service import (
 )
 from app.core.websocket_manager import ws_manager
 from app.core.config import settings
+from app.orchestration.coordinator import decide_responders
 
 
 async def handle_group_message(
@@ -57,9 +58,14 @@ async def handle_group_message(
             select(Contact).where(Contact.id.in_(contact_ids))
         )
         all_contacts = {c.id: c for c in result.scalars().all()}
-        contacts = [all_contacts[cid] for cid in contact_ids if cid in all_contacts]
+        all_contacts_ordered = [all_contacts[cid] for cid in contact_ids if cid in all_contacts]
 
-        # 1. Typing indicators for all contacts at once
+        # 1. Coordinator decides which contacts respond and in what order.
+        #    Build a brief history summary (last 3 turns) as context.
+        history_summary = _summarise_history(history)
+        contacts = await decide_responders(user_text, all_contacts_ordered, history_summary)
+
+        # 2. Typing indicators only for selected contacts
         for contact in contacts:
             await ws_manager.send_to_user(str(user_id), {
                 "type": "typing",
@@ -70,13 +76,13 @@ async def handle_group_message(
                 },
             })
 
-        # 2. Fetch all memory contexts concurrently
+        # 3. Fetch memory contexts for selected contacts concurrently
         memory_contexts = await asyncio.gather(*[
             get_memories_for_context(db, user_id, contact.id)
             for contact in contacts
         ])
 
-        # 3. Fire all LLM calls concurrently.
+        # 4. Fire LLM calls concurrently for selected contacts.
         # force_cheap=True: N contacts × Claude cost is expensive.
         # Qwen via OpenRouter handles group replies at ~20x lower cost.
         responses = await asyncio.gather(*[
@@ -90,7 +96,7 @@ async def handle_group_message(
             for contact, memory_ctx in zip(contacts, memory_contexts)
         ], return_exceptions=True)
 
-        # 4. Deliver staggered
+        # 5. Deliver staggered
         stagger_s = settings.AGENT_RESPONSE_STAGGER_MS / 1000
         delivered: list[tuple] = []
 
@@ -132,7 +138,7 @@ async def handle_group_message(
 
             delivered.append((contact, response, agent_msg.id))
 
-        # 5. Save memories after all delivered
+        # 6. Save memories after all delivered
         for contact, response, msg_id in delivered:
             try:
                 await save_memories_from_conversation(
@@ -141,6 +147,19 @@ async def handle_group_message(
                 )
             except Exception as e:
                 print(f"[Group] Memory save for {contact.name} failed: {e}")
+
+
+def _summarise_history(history: list[dict], turns: int = 3) -> str:
+    """
+    Return the last `turns` exchanges as a plain-text string for the
+    coordinator's context window. Keeps the prompt short and cheap.
+    """
+    recent = history[-(turns * 2):]
+    lines = []
+    for msg in recent:
+        prefix = "User" if msg["role"] == "user" else "Agent"
+        lines.append(f"{prefix}: {msg['content'][:120]}")
+    return "\n".join(lines)
 
 
 def build_group_history(messages: list) -> list[dict]:

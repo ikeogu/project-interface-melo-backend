@@ -115,14 +115,39 @@ async def get_response(
 
 # ── Internal tasks (always use cheapest available) ─────────────────────────────
 
-async def extract_memories(conversation_text: str) -> list[str]:
+async def get_cheap_completion(system: str, user_message: str) -> str:
+    """
+    Raw system+message call using the cheapest available model.
+    Used for routing/classification tasks (coordinator, etc.) where
+    we need full control over the prompt without the persona wrapper.
+    """
+    messages = [{"role": "user", "content": user_message}]
+    try:
+        return await _get_openrouter(system, messages, QWEN_MODEL)
+    except Exception as e:
+        print(f"[LLM] OpenRouter cheap completion failed: {e} — falling back to Ollama")
+    return await _get_ollama(system, messages)
+
+
+async def extract_memories(conversation_text: str) -> list[dict]:
+    """
+    Extract memorable facts and classify each as:
+      "shared"  — about the user themselves (any contact should know this)
+      "contact" — about this specific relationship/conversation (only this contact)
+
+    Returns list of {"fact": str, "scope": "shared"|"contact"}.
+    """
     system = (
-        "Extract key facts about the user from this conversation. "
-        "Return ONLY a JSON array of short strings, or [] if nothing memorable. "
-        'Example: ["User is Lagos-based founder", "User prefers concise replies"]'
+        "Extract key facts from this conversation and classify each.\n"
+        "scope=shared : facts about the user themselves — location, job, goals, "
+        "life events, general preferences. Any AI contact should know these.\n"
+        "scope=contact : facts specific to THIS contact relationship — how the user "
+        "likes this contact to respond, topics unique to this thread.\n"
+        "Return ONLY a JSON array, or [] if nothing memorable.\n"
+        'Example: [{"fact": "User is a Lagos-based founder", "scope": "shared"}, '
+        '{"fact": "User prefers bullet points in replies from this contact", "scope": "contact"}]'
     )
 
-    # If OpenRouter key is not set, just return empty (avoid Ollama crash)
     if not settings.OPENROUTER_API_KEY:
         return []
 
@@ -130,13 +155,21 @@ async def extract_memories(conversation_text: str) -> list[str]:
         text = await _get_openrouter(
             system,
             [{"role": "user", "content": conversation_text}],
-            QWEN_MODEL
+            QWEN_MODEL,
         )
     except Exception:
         return []
 
     try:
-        return json.loads(text)
+        raw = json.loads(text)
+        # Accept both old format (list[str]) and new format (list[dict])
+        result = []
+        for item in raw:
+            if isinstance(item, str):
+                result.append({"fact": item, "scope": "shared"})
+            elif isinstance(item, dict) and "fact" in item:
+                result.append({"fact": item["fact"], "scope": item.get("scope", "shared")})
+        return result
     except Exception:
         return []
 
