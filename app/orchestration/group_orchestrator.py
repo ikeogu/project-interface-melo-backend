@@ -76,11 +76,12 @@ async def handle_group_message(
                 },
             })
 
-        # 3. Fetch memory contexts for selected contacts concurrently
-        memory_contexts = await asyncio.gather(*[
-            get_memories_for_context(db, user_id, contact.id)
-            for contact in contacts
-        ])
+        # 3. Fetch memory contexts sequentially — SQLAlchemy async sessions
+        #    are not safe for concurrent coroutine access on the same session.
+        memory_contexts = []
+        for contact in contacts:
+            ctx = await get_memories_for_context(db, user_id, contact.id)
+            memory_contexts.append(ctx)
 
         # 4. Fire LLM calls concurrently for selected contacts.
         # force_cheap=True: N contacts × Claude cost is expensive.
