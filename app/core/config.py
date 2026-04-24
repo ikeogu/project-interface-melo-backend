@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.2"
 
+    # Groq (free Whisper STT — primary STT provider)
+    GROQ_API_KEY: str | None = None
+
     # OpenAI (Whisper API fallback only)
     OPENAI_API_KEY: str | None = None
 

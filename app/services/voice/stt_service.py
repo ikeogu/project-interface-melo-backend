@@ -1,9 +1,10 @@
 """
 STT Service — multi-provider fallback:
 
-1. ElevenLabs (default)
-2. Self-hosted Faster-Whisper (free, if WHISPER_SERVICE_URL is set)
-3. OpenAI Whisper API (last resort)
+1. Groq Whisper (free, default)
+2. Self-hosted Faster-Whisper (if WHISPER_SERVICE_URL is set)
+3. ElevenLabs (fallback)
+4. OpenAI Whisper API (last resort)
 """
 import httpx
 import io
@@ -25,12 +26,12 @@ async def transcribe_audio(file_url: str) -> str:
       3. OpenAI Whisper API
     """
 
-    # 1. ElevenLabs (default)
-    if settings.ELEVENLABS_API_KEY:
+    # 1. Groq Whisper (free, default)
+    if settings.GROQ_API_KEY:
         try:
-            return await _transcribe_elevenlabs(file_url)
+            return await _transcribe_groq(file_url)
         except Exception as e:
-            print(f"[STT] ElevenLabs failed: {e}")
+            print(f"[STT] Groq failed: {e}")
 
     # 2. Self-hosted Whisper (if WHISPER_SERVICE_URL is set)
     if settings.WHISPER_SERVICE_URL:
@@ -39,7 +40,14 @@ async def transcribe_audio(file_url: str) -> str:
         except Exception as e:
             print(f"[STT] Self-hosted Whisper failed: {e}")
 
-    # 3. OpenAI fallback
+    # 3. ElevenLabs fallback
+    if settings.ELEVENLABS_API_KEY:
+        try:
+            return await _transcribe_elevenlabs(file_url)
+        except Exception as e:
+            print(f"[STT] ElevenLabs failed: {e}")
+
+    # 4. OpenAI fallback
     if settings.OPENAI_API_KEY:
         try:
             return await _transcribe_openai_api(file_url)
@@ -50,7 +58,34 @@ async def transcribe_audio(file_url: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────
-# ElevenLabs (DEFAULT)
+# Groq (free Whisper large-v3-turbo)
+# ─────────────────────────────────────────────────────────────
+
+async def _transcribe_groq(file_url: str) -> str:
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(
+        api_key=settings.GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
+    )
+
+    async with httpx.AsyncClient(timeout=60) as http:
+        r = await http.get(file_url)
+        r.raise_for_status()
+        audio_bytes = r.content
+
+    audio_file = io.BytesIO(audio_bytes)
+    audio_file.name = "voice.m4a"
+
+    result = await client.audio.transcriptions.create(
+        model="whisper-large-v3-turbo",
+        file=audio_file,
+    )
+    return result.text
+
+
+# ─────────────────────────────────────────────────────────────
+# ElevenLabs
 # ─────────────────────────────────────────────────────────────
 
 async def _transcribe_elevenlabs(file_url: str) -> str:
