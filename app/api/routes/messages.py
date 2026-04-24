@@ -4,7 +4,7 @@ from sqlalchemy import select
 from app.db.session import get_db
 from app.api.deps import get_current_user
 from app.models.user import User
-from app.models.chat import Chat
+from app.models.chat import Chat, ChatType
 from app.models.contact import Contact
 from app.models.message import Message, SenderType, ContentType
 from app.schemas.message import MessageCreate, MessageOut
@@ -14,9 +14,9 @@ from app.services.voice.stt_service import transcribe_audio
 from app.services.voice.tts_service import synthesise_speech
 from app.services.voice.storage_service import upload_audio
 from app.core.websocket_manager import ws_manager
+from app.orchestration.group_orchestrator import handle_group_message, build_group_history
 from datetime import datetime
 from uuid import UUID
-import json
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -36,6 +36,17 @@ async def _get_conversation_history(db: AsyncSession, chat_id: UUID, limit: int 
         }
         for m in msgs if (m.text_content or m.transcription)
     ]
+
+
+async def _get_conversation_messages(db: AsyncSession, chat_id: UUID, limit: int = 20) -> list:
+    """Return raw Message objects for history builders that need sender metadata."""
+    result = await db.execute(
+        select(Message)
+        .where(Message.chat_id == chat_id)
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+    )
+    return list(reversed(result.scalars().all()))
 
 
 @router.get("/{chat_id}", response_model=list[MessageOut])
@@ -58,22 +69,14 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
 ):
     # 1. Verify chat belongs to user
-    chat_result = await db.execute(select(Chat).where(Chat.id == payload.chat_id, Chat.owner_id == current_user.id))
+    chat_result = await db.execute(
+        select(Chat).where(Chat.id == payload.chat_id, Chat.owner_id == current_user.id)
+    )
     chat = chat_result.scalar_one_or_none()
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
-    # 2. Get the AI contact from this chat
-    contact_participant = next((p for p in chat.participants if p.get("type") == "contact"), None)
-    if not contact_participant:
-        raise HTTPException(status_code=400, detail="No AI contact in this chat")
-
-    contact_result = await db.execute(select(Contact).where(Contact.id == contact_participant["id"]))
-    contact = contact_result.scalar_one_or_none()
-    if not contact:
-        raise HTTPException(status_code=404, detail="Contact not found")
-
-    # 3. Handle voice note — transcribe first
+    # 2. Transcribe voice note if needed
     transcription = None
     user_text = payload.text_content
 
@@ -81,7 +84,7 @@ async def send_message(
         transcription = await transcribe_audio(payload.media_url)
         user_text = transcription
 
-    # 4. Save user message
+    # 3. Save user message
     user_msg = Message(
         chat_id=payload.chat_id,
         sender_type=SenderType.user,
@@ -95,11 +98,34 @@ async def send_message(
     await db.commit()
     await db.refresh(user_msg)
 
-    # 5. Get memory context + conversation history
+    # 4a. GROUP CHAT — delegate to orchestrator as background task and return immediately.
+    #     All agent replies arrive via WebSocket; no HTTP timeout risk.
+    if chat.chat_type == ChatType.group:
+        raw_msgs = await _get_conversation_messages(db, payload.chat_id)
+        history = build_group_history(raw_msgs)
+        background_tasks.add_task(
+            handle_group_message,
+            chat.id,
+            current_user.id,
+            user_text or "",
+            user_msg.id,
+            history,
+        )
+        return MessageOut.model_validate(user_msg)
+
+    # 4b. DIRECT CHAT — single contact, synchronous response
+    contact_participant = next((p for p in chat.participants if p.get("type") == "contact"), None)
+    if not contact_participant:
+        raise HTTPException(status_code=400, detail="No AI contact in this chat")
+
+    contact_result = await db.execute(select(Contact).where(Contact.id == contact_participant["id"]))
+    contact = contact_result.scalar_one_or_none()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
     memory_context = await get_memories_for_context(db, current_user.id, contact.id)
     history = await _get_conversation_history(db, payload.chat_id)
 
-    # 6. Get Claude response
     response_text = await get_response(
         persona_prompt=contact.persona_prompt,
         conversation_history=history,
@@ -107,7 +133,7 @@ async def send_message(
         memory_context=memory_context,
     )
 
-    # 7. For voice notes: convert response to audio
+    # TTS for voice notes
     agent_media_url = None
     agent_content_type = ContentType.text
 
@@ -116,7 +142,6 @@ async def send_message(
         agent_media_url = await upload_audio(audio_bytes, content_type="audio/mpeg")
         agent_content_type = ContentType.voice
 
-    # 8. Save agent message
     agent_msg = Message(
         chat_id=payload.chat_id,
         sender_type=SenderType.agent,
@@ -131,7 +156,6 @@ async def send_message(
     await db.commit()
     await db.refresh(agent_msg)
 
-    # 9. Push via WebSocket
     await ws_manager.send_to_user(str(current_user.id), {
         "type": "message",
         "payload": {
@@ -146,7 +170,6 @@ async def send_message(
         },
     })
 
-    # 10. Extract + save memories in background (non-blocking)
     background_tasks.add_task(
         save_memories_from_conversation,
         db, current_user.id, contact.id,
