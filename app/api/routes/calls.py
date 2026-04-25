@@ -214,11 +214,12 @@ async def _extract_call_memories(db, user_id, contact_id, transcript, message_id
     from app.models.memory import Memory
 
     memories = await extract_memories(transcript)
-    for fact in memories:
+    for item in memories:
+        scope_contact_id = None if item.get("scope") == "shared" else contact_id
         db.add(Memory(
             user_id=user_id,
-            contact_id=contact_id,
-            content=fact,
+            contact_id=scope_contact_id,
+            content=item["fact"],
             source_message_id=message_id,
         ))
     if memories:
