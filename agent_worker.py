@@ -100,14 +100,16 @@ async def entrypoint(ctx: JobContext) -> None:
         stt = lk_openai.STT(api_key=os.getenv("OPENAI_API_KEY", ""), model="whisper-1")
         logger.info("[Agent] STT: OpenAI Whisper (fallback)")
 
-    # ── LLM: Claude via OpenRouter (OpenAI-compatible) ──────────────────────────
-    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
+    # ── LLM: Groq (fast, free tier, same key as STT) ────────────────────────────
+    groq_llm_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENROUTER_API_KEY", "")
+    llm_base_url = "https://api.groq.com/openai/v1" if os.getenv("GROQ_API_KEY") else "https://openrouter.ai/api/v1"
+    llm_model = "llama-3.1-8b-instant" if os.getenv("GROQ_API_KEY") else "mistralai/mistral-7b-instruct:free"
     llm = lk_openai.LLM(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=openrouter_key,
-        model="meta-llama/llama-3.1-8b-instruct:free",
+        base_url=llm_base_url,
+        api_key=groq_llm_key,
+        model=llm_model,
     )
-    logger.info("[Agent] LLM: Claude via OpenRouter")
+    logger.info(f"[Agent] LLM: {llm_model}")
 
     # ── TTS: ElevenLabs ─────────────────────────────────────────────────────────
     el_key = os.getenv("ELEVENLABS_API_KEY")
@@ -116,7 +118,7 @@ async def entrypoint(ctx: JobContext) -> None:
     tts = lk_elevenlabs.TTS(
         api_key=el_key,
         voice_id=voice_id,
-        model="eleven_turbo_v2",
+        model="eleven_turbo_v2_5",
         encoding="mp3_44100_128",
     )
     logger.info(f"[Agent] TTS: ElevenLabs voice_id={voice_id}")

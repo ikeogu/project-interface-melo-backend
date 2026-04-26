@@ -12,6 +12,7 @@ POST /calls/transcript is called by the agent after the call ends
 to save the transcript and trigger memory extraction.
 """
 import json
+import aiohttp
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -28,6 +29,7 @@ from app.services.memory.memory_service import (
     save_memories_from_conversation,
 )
 from livekit.api import AccessToken, VideoGrants
+from livekit.api.room_service import RoomService, CreateRoomRequest
 from uuid import UUID, uuid4
 from datetime import datetime
 
@@ -145,16 +147,26 @@ async def _create_call_session(
     # Create a unique room name
     room_name = f"call-{current_user.id}-{contact.id}-{uuid4().hex[:8]}"
 
-    # Room metadata — read by the LiveKit agent when it joins
+    # Room metadata — read by the LiveKit agent when it joins via ctx.room.metadata
     room_metadata = json.dumps({
         "contact_id": str(contact.id),
         "user_id": str(current_user.id),
         "contact_name": contact.name,
         "persona_prompt": contact.persona_prompt,
-        "voice_id": contact.voice_id or "af_heart",
+        "voice_id": contact.voice_id or "EXAVITQu4vr4xnSDxMaL",
         "memory_context": memory_context,
         "specialty_tags": contact.specialty_tags or [],
     })
+
+    # Create the room with metadata so the agent can read ctx.room.metadata
+    livekit_ws = settings.LIVEKIT_URL.replace("wss://", "https://").replace("ws://", "http://")
+    async with aiohttp.ClientSession() as http_session:
+        room_svc = RoomService(http_session, livekit_ws, settings.LIVEKIT_API_KEY, settings.LIVEKIT_API_SECRET)
+        await room_svc.create_room(CreateRoomRequest(
+            name=room_name,
+            empty_timeout=300,
+            metadata=room_metadata,
+        ))
 
     # Generate LiveKit access token for the user
     token = (
@@ -167,7 +179,6 @@ async def _create_call_session(
             can_publish=True,
             can_subscribe=True,
         ))
-        .with_metadata(room_metadata)
         .to_jwt()
     )
 
