@@ -61,7 +61,25 @@ async def list_chats(
     result = await db.execute(
         select(Chat).where(Chat.owner_id == current_user.id).order_by(Chat.last_message_at.desc().nullslast())
     )
-    return result.scalars().all()
+    chats = result.scalars().all()
+
+    # Deduplicate direct chats: keep only the most recently active chat per contact.
+    # (Duplicates accumulate when the client calls POST /chats/direct multiple times.)
+    seen_contact_ids: set[str] = set()
+    deduped: list[Chat] = []
+    for chat in chats:
+        if chat.chat_type != ChatType.direct:
+            deduped.append(chat)
+            continue
+        contact_id = next(
+            (p["id"] for p in (chat.participants or []) if p.get("type") == "contact"),
+            None,
+        )
+        if contact_id and contact_id not in seen_contact_ids:
+            seen_contact_ids.add(contact_id)
+            deduped.append(chat)
+
+    return deduped
 
 
 @router.post("/direct", response_model=ChatOut)
@@ -74,6 +92,18 @@ async def create_direct_chat(
     contact = contact_result.scalar_one_or_none()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
+
+    # Return existing direct chat if one already exists for this user-contact pair
+    existing_result = await db.execute(
+        select(Chat).where(
+            Chat.owner_id == current_user.id,
+            Chat.chat_type == ChatType.direct,
+        )
+    )
+    for chat in existing_result.scalars().all():
+        ids = [p.get("id") for p in (chat.participants or [])]
+        if str(payload.contact_id) in ids:
+            return chat
 
     chat = Chat(
         owner_id=current_user.id,
