@@ -35,8 +35,8 @@ from livekit.agents import (
     TurnHandlingOptions,
 )
 from livekit.plugins import openai as lk_openai
-from livekit.plugins import elevenlabs as lk_elevenlabs
 from livekit.plugins import silero
+from edge_tts_plugin import EdgeTTS
 
 logger = logging.getLogger("call-agent")
 logging.basicConfig(level=logging.INFO)
@@ -111,16 +111,9 @@ async def entrypoint(ctx: JobContext) -> None:
     )
     logger.info(f"[Agent] LLM: {llm_model}")
 
-    # ── TTS: ElevenLabs ─────────────────────────────────────────────────────────
-    el_key = os.getenv("ELEVENLABS_API_KEY")
-    if not el_key:
-        raise RuntimeError("ELEVENLABS_API_KEY is required for voice calls")
-    tts = lk_elevenlabs.TTS(
-        api_key=el_key,
-        voice_id=voice_id,
-        model="eleven_turbo_v2_5",
-    )
-    logger.info(f"[Agent] TTS: ElevenLabs voice_id={voice_id}")
+    # ── TTS: edge-tts (Microsoft, free, no API key needed) ─────────────────────
+    tts = EdgeTTS(voice_id=voice_id)
+    logger.info(f"[Agent] TTS: edge-tts voice_id={voice_id}")
 
     # ── VAD ─────────────────────────────────────────────────────────────────────
     vad = silero.VAD.load()
