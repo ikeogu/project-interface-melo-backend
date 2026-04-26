@@ -32,6 +32,7 @@ from livekit.agents import (
     JobContext,
     WorkerOptions,
     cli,
+    TurnHandlingOptions,
 )
 from livekit.plugins import openai as lk_openai
 from livekit.plugins import elevenlabs as lk_elevenlabs
@@ -59,7 +60,6 @@ class ContactAgent(Agent):
     async def on_enter(self) -> None:
         await self.session.say(
             f"Hey, it's {self._contact_name}. Go ahead — I'm listening.",
-            allow_interruptions=True,
         )
 
 
@@ -124,31 +124,36 @@ async def entrypoint(ctx: JobContext) -> None:
     # ── VAD ─────────────────────────────────────────────────────────────────────
     vad = silero.VAD.load()
 
-    # ── Wire up the session and agent ───────────────────────────────────────────
-    session = AgentSession(vad=vad, stt=stt, llm=llm, tts=tts, allow_interruptions=True)
-
-    # Track transcript for memory extraction after the call
     transcript_lines: list[str] = []
 
-    @session.on("user_speech_committed")
-    def on_user(ev):
-        text = getattr(ev, "transcript", "") or getattr(ev, "content", "")
-        if text:
-            transcript_lines.append(f"User: {text}")
-
-    @session.on("agent_speech_committed")
-    def on_agent(ev):
-        text = getattr(ev, "transcript", "") or getattr(ev, "content", "")
-        if text:
-            transcript_lines.append(f"{contact_name}: {text}")
-
-    await session.start(
-        agent=ContactAgent(instructions=instructions, contact_name=contact_name),
-        room=ctx.room,
+    # ── Wire up the session and agent ───────────────────────────────────────────
+    session = AgentSession(
+        vad=vad,
+        stt=stt,
+        llm=llm,
+        tts=tts,
+        turn_handling=TurnHandlingOptions(allow_interruptions=True),
     )
 
-    # Wait for the user to hang up
-    await ctx.wait_for_disconnect()
+    # Capture both sides of the conversation via conversation_item_added
+    @session.on("conversation_item_added")
+    def _on_item(ev):
+        msg = ev.item
+        text = msg.text_content if hasattr(msg, "text_content") else None
+        if not text:
+            return
+        role = getattr(msg, "role", None)
+        if role and str(role) in ("user", "ChatRole.user"):
+            transcript_lines.append(f"User: {text}")
+        elif role and str(role) in ("assistant", "ChatRole.assistant"):
+            transcript_lines.append(f"{contact_name}: {text}")
+
+    agent = ContactAgent(instructions=instructions, contact_name=contact_name)
+
+    await session.start(agent=agent, room=ctx.room)
+
+    # Wait until the session goes quiet (user hung up or connection dropped)
+    await session.wait_for_inactive()
     logger.info(f"[Agent] Call ended — {len(transcript_lines)} transcript lines")
 
     # ── Post transcript to API ───────────────────────────────────────────────────
