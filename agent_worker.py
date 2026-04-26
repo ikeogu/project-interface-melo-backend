@@ -119,7 +119,6 @@ async def entrypoint(ctx: JobContext) -> None:
         api_key=el_key,
         voice_id=voice_id,
         model="eleven_turbo_v2_5",
-        encoding="mp3_44100_128",
     )
     logger.info(f"[Agent] TTS: ElevenLabs voice_id={voice_id}")
 
