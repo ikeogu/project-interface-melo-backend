@@ -106,6 +106,7 @@ async def entrypoint(ctx: JobContext) -> None:
         base_url="https://openrouter.ai/api/v1",
         api_key=openrouter_key,
         model="anthropic/claude-3.5-haiku",
+        max_tokens=512,
     )
     logger.info("[Agent] LLM: Claude via OpenRouter")
 
