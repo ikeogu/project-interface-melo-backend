@@ -51,6 +51,18 @@ class TranscriptPayload(BaseModel):
     duration_seconds: int
 
 
+class CallLogEntry(BaseModel):
+    id: str                    # message id
+    contact_id: str
+    contact_name: str
+    contact_avatar_emoji: str | None
+    contact_avatar_url: str | None
+    room_name: str
+    turn_count: int
+    duration_seconds: int
+    called_at: str             # ISO 8601
+
+
 @router.post("/voice/{contact_id}", response_model=StartCallResponse)
 async def start_voice_call(
     contact_id: UUID,
@@ -125,6 +137,65 @@ async def save_transcript(
     )
 
     return {"status": "saved", "message_id": str(msg.id)}
+
+
+@router.get("/history", response_model=list[CallLogEntry])
+async def get_call_history(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns all past call transcripts for the current user, newest first.
+    Each entry includes the contact details and call metadata.
+    """
+    # Fetch all call-transcript messages from chats owned by this user
+    result = await db.execute(
+        select(Message, Chat)
+        .join(Chat, Message.chat_id == Chat.id)
+        .where(
+            Chat.owner_id == current_user.id,
+            Message.content_type == ContentType.voice,
+            Message.sender_type == SenderType.agent,
+        )
+        .order_by(Message.created_at.desc())
+    )
+    rows = result.all()
+
+    # Filter to only call transcripts (voice notes are also content_type=voice)
+    call_rows = [
+        (msg, chat) for msg, chat in rows
+        if isinstance(msg.meta, dict) and msg.meta.get("type") == "call_transcript"
+    ]
+
+    if not call_rows:
+        return []
+
+    # Collect unique contact IDs so we can fetch them in one query
+    contact_ids = {UUID(msg.sender_id) if isinstance(msg.sender_id, str) else msg.sender_id
+                   for msg, _ in call_rows}
+    contacts_result = await db.execute(
+        select(Contact).where(Contact.id.in_(contact_ids))
+    )
+    contacts = {c.id: c for c in contacts_result.scalars().all()}
+
+    entries: list[CallLogEntry] = []
+    for msg, chat in call_rows:
+        contact_id = UUID(msg.sender_id) if isinstance(msg.sender_id, str) else msg.sender_id
+        contact = contacts.get(contact_id)
+        meta = msg.meta or {}
+        entries.append(CallLogEntry(
+            id=str(msg.id),
+            contact_id=str(contact_id),
+            contact_name=contact.name if contact else "Unknown",
+            contact_avatar_emoji=contact.avatar_emoji if contact else None,
+            contact_avatar_url=contact.avatar_url if contact else None,
+            room_name=meta.get("room_name", ""),
+            turn_count=meta.get("turn_count", 0),
+            duration_seconds=meta.get("duration_seconds", 0),
+            called_at=msg.created_at.isoformat(),
+        ))
+
+    return entries
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
