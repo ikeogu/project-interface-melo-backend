@@ -65,7 +65,7 @@ passlib==1.7.4
 pgvector==0.3.5
 prompt_toolkit==3.0.52
 propcache==0.4.1
-protobuf==7.34.1
+protobuf==5.29.4
 psycopg==3.3.3
 psycopg-binary==3.3.3
 pyasn1==0.6.3
@@ -95,7 +95,7 @@ tenacity==9.0.0
 tokenizers==0.22.2
 tqdm==4.67.3
 typer==0.24.1
-types-protobuf==7.34.1.20260408
+types-protobuf==5.29.4.20250208
 typing_extensions==4.15.0
 tzdata==2026.1
 urllib3==2.6.3
