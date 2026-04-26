@@ -105,8 +105,7 @@ async def entrypoint(ctx: JobContext) -> None:
     llm = lk_openai.LLM(
         base_url="https://openrouter.ai/api/v1",
         api_key=openrouter_key,
-        model="anthropic/claude-3.5-haiku",
-        max_tokens=512,
+        model="meta-llama/llama-3.1-8b-instruct:free",
     )
     logger.info("[Agent] LLM: Claude via OpenRouter")
 
