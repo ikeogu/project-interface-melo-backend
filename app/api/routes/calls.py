@@ -42,6 +42,11 @@ class StartCallResponse(BaseModel):
     livekit_url: str     # WebSocket URL for the client to connect to
 
 
+class StartVideoCallResponse(BaseModel):
+    conversation_id: str
+    conversation_url: str  # Daily.co URL — open in WebView
+
+
 class TranscriptPayload(BaseModel):
     user_id: str
     contact_id: str
@@ -77,17 +82,85 @@ async def start_voice_call(
     return await _create_call_session(contact_id, current_user, db, video=False)
 
 
-@router.post("/video/{contact_id}", response_model=StartCallResponse)
+@router.post("/video/{contact_id}", response_model=StartVideoCallResponse)
 async def start_video_call(
     contact_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Start a video call with an AI contact.
-    Uses Tavus for the avatar (Phase 3). For now returns same as voice.
+    Start a video call with an AI contact via Tavus CVI.
+    Returns a Tavus conversation URL to open in a WebView.
     """
-    return await _create_call_session(contact_id, current_user, db, video=True)
+    if not settings.TAVUS_API_KEY:
+        raise HTTPException(status_code=503, detail="Video calls not configured (missing TAVUS_API_KEY)")
+    if not settings.TAVUS_REPLICA_ID:
+        raise HTTPException(status_code=503, detail="Video calls not configured (missing TAVUS_REPLICA_ID)")
+
+    result = await db.execute(select(Contact).where(Contact.id == contact_id))
+    contact = result.scalar_one_or_none()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    memory_context = await get_memories_for_context(db, current_user.id, contact.id)
+
+    # Build the conversational context for Tavus
+    system_context = contact.persona_prompt
+    if memory_context:
+        system_context += f"\n\n--- What you know about this user ---\n{memory_context}\n---"
+    system_context += (
+        "\n\nThis is a live video call. Be concise — 1 to 3 sentences per reply. "
+        "Speak naturally. No lists, no markdown."
+    )
+
+    greeting = f"Hey, it's {contact.name}. Go ahead — I'm listening."
+
+    replica_id = contact.avatar_id or settings.TAVUS_REPLICA_ID
+
+    async with aiohttp.ClientSession() as session:
+        resp = await session.post(
+            "https://tavusapi.com/v2/conversations",
+            headers={
+                "x-api-key": settings.TAVUS_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json={
+                "replica_id": replica_id,
+                "conversation_name": f"{contact.name} — {current_user.display_name}",
+                "conversational_context": system_context,
+                "custom_greeting": greeting,
+                "properties": {
+                    "max_call_duration": 3600,
+                    "participant_left_timeout": 60,
+                    "enable_recording": False,
+                },
+            },
+        )
+        if resp.status not in (200, 201):
+            body = await resp.text()
+            raise HTTPException(status_code=502, detail=f"Tavus error: {body}")
+        data = await resp.json()
+
+    return StartVideoCallResponse(
+        conversation_id=data["conversation_id"],
+        conversation_url=data["conversation_url"],
+    )
+
+
+@router.post("/video/{conversation_id}/end")
+async def end_video_call(
+    conversation_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """End a Tavus conversation when the user hangs up."""
+    if not settings.TAVUS_API_KEY:
+        return {"status": "ok"}
+    async with aiohttp.ClientSession() as session:
+        await session.delete(
+            f"https://tavusapi.com/v2/conversations/{conversation_id}",
+            headers={"x-api-key": settings.TAVUS_API_KEY},
+        )
+    return {"status": "ended"}
 
 
 @router.post("/transcript")

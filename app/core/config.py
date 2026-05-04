@@ -57,6 +57,7 @@ class Settings(BaseSettings):
 
     # Tavus (video avatar, Phase 3)
     TAVUS_API_KEY: str = ""
+    TAVUS_REPLICA_ID: str = ""
 
     # Storage
     AWS_ACCESS_KEY_ID: str = ""
