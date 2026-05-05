@@ -129,6 +129,7 @@ async def start_video_call(
                 "conversation_name": f"{contact.name} — {current_user.display_name}",
                 "conversational_context": system_context,
                 "custom_greeting": greeting,
+                "participant_name": current_user.display_name,
                 "properties": {
                     "max_call_duration": 3600,
                     "participant_left_timeout": 60,
