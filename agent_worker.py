@@ -43,13 +43,21 @@ logging.basicConfig(level=logging.INFO)
 
 API_BASE = os.getenv("APP_BASE_URL", "http://localhost:8000") + "/api/v1"
 
-_VOICE_RULES = (
-    "\n\nThis is a live voice call. Follow these rules:\n"
-    "- Keep every reply to 1–3 sentences. Never list or enumerate.\n"
-    "- Speak naturally and conversationally. No markdown, no headers.\n"
-    "- Ask only one question at a time if you need clarification.\n"
-    "- If you don't know something, say so simply."
-)
+_VOICE_RULES = """
+
+You are on a live phone call right now. Speak exactly the way a real person does on the phone.
+
+Natural call behaviour:
+- Match your energy to the caller's. If they're brief, be brief. If they want to talk, engage more.
+- Respond to what was actually said, not what you expected them to say.
+- Use natural spoken language — contractions, short sentences, occasional filler ("right", "sure", "got it") but don't overdo it.
+- Never list things out loud. If you need to cover multiple points, weave them into natural sentences.
+- One thought at a time. Finish a point, then pause (let them respond). Don't monologue.
+- If you didn't catch something or need a moment, say so ("sorry, say that again?" or "give me a second").
+- No "Certainly!", "Absolutely!", "Great question!" — these sound robotic on a call. Just respond naturally.
+- Silence is fine. You don't need to fill every gap.
+- Keep replies tight: 1–3 sentences unless they're clearly asking for depth.
+- End responses in a way that invites the conversation forward — a natural pause, a soft question, or simply finishing your thought."""
 
 
 class ContactAgent(Agent):
@@ -59,7 +67,7 @@ class ContactAgent(Agent):
 
     async def on_enter(self) -> None:
         await self.session.say(
-            f"Hey, it's {self._contact_name}. Go ahead — I'm listening.",
+            f"Hey! What's up?",
         )
 
 
@@ -84,7 +92,14 @@ async def entrypoint(ctx: JobContext) -> None:
     # ── Build system prompt ─────────────────────────────────────────────────────
     instructions = persona_prompt
     if memory_context:
-        instructions += f"\n\n--- What you know about this user ---\n{memory_context}\n---"
+        instructions += (
+            f"\n\n--- Background context ---\n"
+            f"{memory_context}\n"
+            f"---\n"
+            f"This is a fresh call. Start the conversation naturally without referencing "
+            f"any of the above. Only bring up past information if the user raises it first "
+            f"or it becomes directly relevant to what they are asking."
+        )
     instructions += _VOICE_RULES
 
     # ── STT: Groq Whisper ───────────────────────────────────────────────────────

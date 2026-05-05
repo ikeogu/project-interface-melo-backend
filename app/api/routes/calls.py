@@ -107,13 +107,29 @@ async def start_video_call(
     # Build the conversational context for Tavus
     system_context = contact.persona_prompt
     if memory_context:
-        system_context += f"\n\n--- What you know about this user ---\n{memory_context}\n---"
-    system_context += (
-        "\n\nThis is a live video call. Be concise — 1 to 3 sentences per reply. "
-        "Speak naturally. No lists, no markdown."
-    )
+        system_context += (
+            f"\n\n--- Background context ---\n"
+            f"{memory_context}\n"
+            f"---\n"
+            f"This is a fresh call. Start the conversation naturally without referencing "
+            f"any of the above. Only bring up past information if the user raises it first "
+            f"or it becomes directly relevant to what they are asking."
+        )
+    system_context += """
 
-    greeting = f"Hey, it's {contact.name}. Go ahead — I'm listening."
+You are on a live video call right now. The person can see and hear you, so speak exactly the way a real person does face-to-face on a video call.
+
+Natural call behaviour:
+- Match your energy to theirs. Calm if they're calm, engaged if they're animated.
+- Respond to what was actually said — don't pre-empt or over-explain.
+- Use natural spoken language: contractions, short sentences, the occasional "right" or "sure" — but don't overdo filler.
+- Never read out a list. If you need to cover a few things, weave them into natural sentences.
+- One point at a time. Say your piece, then let them respond. Don't monologue.
+- No "Certainly!", "Absolutely!", "Great question!" — they sound robotic. Just respond directly.
+- Keep replies tight: 1–3 sentences unless they're clearly asking for depth.
+- End your turn naturally — a soft pause, a gentle question, or simply finishing your thought — so the conversation flows."""
+
+    greeting = f"Hey! Good to hear from you."
 
     replica_id = contact.avatar_id or settings.TAVUS_REPLICA_ID
 
