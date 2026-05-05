@@ -90,7 +90,10 @@ async def entrypoint(ctx: JobContext) -> None:
     contact_id     = metadata.get("contact_id", "")
 
     # ── Build system prompt ─────────────────────────────────────────────────────
+    user_name = metadata.get("user_name", "")
     instructions = persona_prompt
+    if user_name:
+        instructions += f"\n\nThe person calling is called {user_name}. Use their name naturally — not in every sentence, just the way a real person would."
     if memory_context:
         instructions += (
             f"\n\n--- Background context ---\n"

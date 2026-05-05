@@ -105,7 +105,9 @@ async def start_video_call(
     memory_context = await get_memories_for_context(db, current_user.id, contact.id)
 
     # Build the conversational context for Tavus
+    user_name = current_user.display_name or "the user"
     system_context = contact.persona_prompt
+    system_context += f"\n\nThe person you are speaking with is called {user_name}. Use their name naturally — not in every sentence, just the way a real person would."
     if memory_context:
         system_context += (
             f"\n\n--- Background context ---\n"
@@ -145,7 +147,6 @@ Natural call behaviour:
                 "conversation_name": f"{contact.name} — {current_user.display_name}",
                 "conversational_context": system_context,
                 "custom_greeting": greeting,
-                "participant_name": current_user.display_name,
                 "properties": {
                     "max_call_duration": 3600,
                     "participant_left_timeout": 60,
@@ -312,6 +313,7 @@ async def _create_call_session(
     room_metadata = json.dumps({
         "contact_id": str(contact.id),
         "user_id": str(current_user.id),
+        "user_name": current_user.display_name or "",
         "contact_name": contact.name,
         "persona_prompt": contact.persona_prompt,
         "voice_id": contact.voice_id or "EXAVITQu4vr4xnSDxMaL",
